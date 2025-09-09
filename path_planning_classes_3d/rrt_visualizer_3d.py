@@ -203,30 +203,64 @@ class NRRTStarPNGVisualizer3D(RRTStarVisualizer3D):
     def plot_points(self, points):
         self.ax.scatter(points[:,0], points[:,1], points[:,2], s=2, c='C1')
 
-
 class NIRRTStarVisualizer3D(IRRTStarVisualizer3D):
     def __init__(self, x_start, x_goal, env, path_point_cloud_pred=None):
         super().__init__(x_start, x_goal, env)
         self.path_point_cloud_pred = path_point_cloud_pred
+        # 创建一个图窗和3D坐标轴，所有更新都在同一个图窗中
+        self.fig = plt.figure()
+        self.ax = self.fig.add_subplot(111, projection="3d")
+        plt.ion()  # 开启交互模式，动态刷新图像
 
     def set_path_point_cloud_pred(self, path_point_cloud_pred):
         self.path_point_cloud_pred = path_point_cloud_pred
 
-    def animation(self, vertices, vertex_parents, path, figure_title,\
+    def animation(self, vertices, vertex_parents, path, figure_title,
                   x_center, c_best, dist, C, img_filename=None, img_folder='visualization/planning_demo'):
-        self.plot_grid(figure_title)
+        # 清空坐标轴内容
+        self.ax.cla()
+
+        # 绘制场景
+        self.plot_grid(figure_title, clear_axes=False)
         self.plot_visited(vertices, vertex_parents, animation=False)
         if self.path_point_cloud_pred is not None:
             self.plot_points(self.path_point_cloud_pred)
         if c_best != np.inf:
             self.draw_ellipsoid(x_center, c_best, dist, C)
         self.plot_path(path)
-        if img_filename is None:
-            plt.show()
-        else:
+
+        # 刷新图窗
+        plt.draw()
+        plt.pause(0.01)  # 短暂暂停，让图像更新
+
+        # 如果指定保存路径，则保存静态图片
+        if img_filename is not None:
             if not exists(img_folder):
                 os.makedirs(img_folder, exist_ok=True)
             plt.savefig(join(img_folder, img_filename))
+
+    def plot_grid(self, figure_title, clear_axes=True):
+        """绘制环境网格和障碍物，如果 clear_axes=False，则使用已有图窗和坐标轴"""
+        if clear_axes:
+            self.fig = plt.figure()
+            self.ax = self.fig.add_subplot(111, projection="3d")
+        self.ax.view_init(elev=45., azim=-30)
+        plt.title(figure_title)
+        if self.obs_ball is not None:
+            self.draw_balls()
+        if self.obs_box is not None:
+            obs_blocks = np.copy(self.obs_box)
+            obs_blocks[:,3:] = obs_blocks[:,:3]+obs_blocks[:,3:]
+            self.draw_blocks(obs_blocks)
+        self.draw_blocks(np.array([self.boundary]), alpha=0)
+        self.plot_start_goal()
+        xmin, ymin, zmin, xmax, ymax, zmax = self.boundary
+        self.ax.set_xlim3d([xmin, xmax])
+        self.ax.set_ylim3d([ymin, ymax])
+        self.ax.set_zlim3d([zmin, zmax])
+        self.ax.axis('off')
+        limits = np.array([getattr(self.ax, f'get_{axis}lim')() for axis in 'xyz'])
+        self.ax.set_box_aspect(np.ptp(limits, axis=1))
 
     def plot_points(self, points):
         self.ax.scatter(points[:,0], points[:,1], points[:,2], s=2, c='C1')

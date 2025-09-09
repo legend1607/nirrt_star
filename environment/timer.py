@@ -3,6 +3,7 @@ from enum import auto
 from copy import deepcopy
 
 
+
 class Timer:
     VERTEX_CHECK = 0
     EDGE_CHECK = 4
@@ -15,6 +16,7 @@ class Timer:
     HEAP = 8
     GPU = 9
     SHORTEST_PATH = 10
+    ENABLE_LOG = False 
     
     def __init__(self):
         self.log = []
@@ -23,7 +25,11 @@ class Timer:
         self.st = time()
         
     def finish(self, action):
-        self.log.append([float(self.st), time(), action])
+        if Timer.ENABLE_LOG:
+            self.log.append([float(self.st), time(), action])
+        else:
+            # 日志禁用时什么也不做
+            pass
         
         
 if __name__ == '__main__':

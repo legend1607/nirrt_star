@@ -10,6 +10,62 @@ from path_planning_utils_3d.env_3d import Env
 from path_planning_utils_3d.Astar_3d import Weighted_A_star
 from path_planning_utils_3d.collision_check_utils import points_in_AABB_3d, points_in_ball_3d
 
+import matplotlib.pyplot as plt
+from mpl_toolkits.mplot3d import Axes3D  # noqa: F401
+from matplotlib.patches import Rectangle
+from mpl_toolkits.mplot3d.art3d import Poly3DCollection, Line3DCollection
+
+def visualize_env_3d(env, x_start_list=None, x_goal_list=None, show=True):
+    """
+    可视化环境、障碍和采样点
+    - env: Env对象
+    - x_start_list, x_goal_list: 每个样本的起点和终点
+    """
+    fig = plt.figure(figsize=(10,8))
+    ax = fig.add_subplot(111, projection='3d')
+    
+    # 设置边界
+    xmin, ymin, zmin, xmax, ymax, zmax = env.boundary_no_clearance
+    ax.set_xlim([xmin, xmax])
+    ax.set_ylim([ymin, ymax])
+    ax.set_zlim([zmin, zmax])
+    ax.set_xlabel('X')
+    ax.set_ylabel('Y')
+    ax.set_zlabel('Z')
+
+    # 绘制方块障碍
+    for block in env.blocks_no_clearance:
+        x0, y0, z0, x1, y1, z1 = block
+        # 创建立方体顶点
+        verts = [
+            [(x0,y0,z0),(x1,y0,z0),(x1,y1,z0),(x0,y1,z0)],
+            [(x0,y0,z1),(x1,y0,z1),(x1,y1,z1),(x0,y1,z1)],
+            [(x0,y0,z0),(x1,y0,z0),(x1,y0,z1),(x0,y0,z1)],
+            [(x0,y1,z0),(x1,y1,z0),(x1,y1,z1),(x0,y1,z1)],
+            [(x0,y0,z0),(x0,y1,z0),(x0,y1,z1),(x0,y0,z1)],
+            [(x1,y0,z0),(x1,y1,z0),(x1,y1,z1),(x1,y0,z1)]
+        ]
+        ax.add_collection3d(Poly3DCollection(verts, color='red', alpha=0.3))
+
+    # 绘制球障碍
+    for ball in env.balls_no_clearance:
+        x, y, z, r = ball
+        u, v = np.mgrid[0:2*np.pi:20j, 0:np.pi:10j]
+        xs = x + r*np.cos(u)*np.sin(v)
+        ys = y + r*np.sin(u)*np.sin(v)
+        zs = z + r*np.cos(v)
+        ax.plot_surface(xs, ys, zs, color='blue', alpha=0.3)
+
+    # 绘制起点/终点
+    if x_start_list and x_goal_list:
+        for s, g in zip(x_start_list, x_goal_list):
+            ax.scatter(*s, color='green', s=50, label='Start')
+            ax.scatter(*g, color='magenta', s=50, label='Goal')
+            # 可选画连线
+            ax.plot([s[0], g[0]], [s[1], g[1]], [s[2], g[2]], color='black', linestyle='dashed')
+
+    if show:
+        plt.show()
 
 
 def generate_env_3d(
@@ -170,6 +226,9 @@ for mode in ['train', 'val', 'test']:
             invalid_env_count += 1
             print("Invalid env: {0}/{1}".format(invalid_env_count, total_env_count))
             continue
+        # 在生成完 start/goal 后
+        # visualize_env_3d(env, x_start_list, x_goal_list, show=True)
+
         env_dict = {}
         env_dict['env_dims'] = env_dims
         env_dict['box_obstacles'] = box_obstacles

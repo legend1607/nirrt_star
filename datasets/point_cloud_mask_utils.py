@@ -17,18 +17,29 @@ def get_binary_mask(env_img):
     return binary_mask
 
 
-def get_point_cloud_mask_around_points(
-    point_cloud,
-    points,
-    neighbor_radius=3,
-    ):
-    # point_cloud (n, C)
-    # points (m, C), m can be 1
-    dist = point_cloud[:,np.newaxis] - points # (n,m,C)
-    dist = np.linalg.norm(dist,axis=2) # (n,m) # euclidean distance
-    neighbor_mask = dist<neighbor_radius # (n, m)
-    around_points_mask = np.sum(neighbor_mask,axis=1)>0 # (n,)
+def get_point_cloud_mask_around_points(point_cloud, points, neighbor_radius=3):
+    """
+    - 自动支持 point_cloud 和 points 的任意维度
+    - point_cloud: (n, C)
+    - points: (m, C)
+    - neighbor_radius: 半径阈值
+    """
+    point_cloud = np.asarray(point_cloud)
+    points = np.asarray(points)
+
+    # 检查维度一致
+    assert point_cloud.shape[1] == points.shape[1], "point_cloud 和 points 维度不一致"
+
+    # 计算欧氏距离
+    diff = point_cloud[:, np.newaxis, :] - points[np.newaxis, :, :]  # (n, m, C)
+    dist = np.linalg.norm(diff, axis=2)  # (n, m)
+
+    # 判断是否在邻域半径内
+    neighbor_mask = dist < neighbor_radius  # (n, m)
+    around_points_mask = np.any(neighbor_mask, axis=1)  # (n,)
+
     return around_points_mask
+
 
 
 # *** Rectangular sampling ***

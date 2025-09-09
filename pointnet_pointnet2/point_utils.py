@@ -1,5 +1,7 @@
 import numpy as np
 
+from environment.kuka_env import KukaEnv
+
 def normalize_data(batch_data):
     """ Normalize the batch data, use coordinates of the block centered at origin,
         Input:
@@ -129,7 +131,6 @@ def rotate_perturbation_point_cloud_with_normal(batch_data, angle_sigma=0.06, an
         rotated_data[k,:,3:6] = np.dot(shape_normal.reshape((-1, 3)), R)
     return rotated_data
 
-
 def rotate_point_cloud_by_angle(batch_data, rotation_angle):
     """ Rotate the point cloud along up direction with certain angle.
         Input:
@@ -171,8 +172,6 @@ def rotate_point_cloud_by_angle_with_normal(batch_data, rotation_angle):
         rotated_data[k,:,3:6] = np.dot(shape_normal.reshape((-1,3)), rotation_matrix)
     return rotated_data
 
-
-
 def rotate_perturbation_point_cloud(batch_data, angle_sigma=0.06, angle_clip=0.18):
     """ Randomly perturb the point clouds by small rotations
         Input:
@@ -196,6 +195,73 @@ def rotate_perturbation_point_cloud(batch_data, angle_sigma=0.06, angle_clip=0.1
         shape_pc = batch_data[k, ...]
         rotated_data[k, ...] = np.dot(shape_pc.reshape((-1, 3)), R)
     return rotated_data
+
+def augment_kuka_joint_space(batch_q, 
+                             env: "KukaEnv",
+                              local_indices=None,     # 要扰动/旋转的关节索引
+                              rotation_prob=0.5,      # 每个样本旋转概率
+                              perturb_sigma=0.01,     # 高斯扰动标准差
+                              perturb_clip=0.05,      # 高斯扰动裁剪
+                              check_feasible=False,   # 是否做可行性检查
+                              max_attempts=10):       # 可行性重采样次数
+    """
+    高维机器人关节空间增强函数
+    
+    参数:
+        batch_q: B x N x D array, D = env.config_dim
+        env: KukaEnv 对象
+        local_indices: list[int], 只对指定关节增强
+        rotation_prob: 随机旋转概率
+        perturb_sigma: 小扰动标准差
+        perturb_clip: 小扰动裁剪
+        check_feasible: 是否检查 FK / 碰撞
+        max_attempts: 可行性检查失败后重采样次数
+    
+    返回:
+        batch_aug: B x N x D, 增强后的关节向量
+    """
+    B, N, D = batch_q.shape
+    batch_aug = batch_q.copy()
+    if local_indices is None:
+        local_indices = list(range(D))
+    
+    min_bound = env.bound[:D]
+    max_bound = env.bound[D:]
+    
+    for b in range(B):
+        for n in range(N):
+            q = batch_aug[b, n]
+            for attempt in range(max_attempts):
+                q_aug = q.copy()
+                
+                # 局部旋转
+                if np.random.rand() < rotation_prob:
+                    d = len(local_indices)
+                    Q, _ = np.linalg.qr(np.random.randn(d, d))
+                    q_sub = q_aug[local_indices]
+                    q_aug[local_indices] = np.dot(q_sub, Q)
+                
+                # 小幅扰动
+                jitter = np.clip(perturb_sigma * np.random.randn(D), -perturb_clip, perturb_clip)
+                q_aug += jitter
+                
+                # 裁剪到关节合法范围
+                q_aug = np.clip(q_aug, min_bound, max_bound)
+                
+                # 可行性检查（FK + 碰撞）
+                feasible = True
+                if check_feasible:
+                    env.init_state = q_aug
+                    if not env.is_state_free(q_aug):
+                        feasible = False
+                
+                if feasible:
+                    batch_aug[b, n] = q_aug
+                    break  # 成功增强
+                elif attempt == max_attempts - 1:
+                    batch_aug[b, n] = q  # 无法增强，保持原值
+    
+    return batch_aug
 
 
 def jitter_point_cloud(batch_data, sigma=0.01, clip=0.05):

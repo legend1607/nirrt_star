@@ -1,3 +1,4 @@
+import time
 import numpy as np
 
 from path_planning_utils_3d.rrt_env_3d import Env
@@ -58,20 +59,22 @@ class NIRRTStarPNG3D(IRRTStar3D):
         visualize=False,
     ):
         start_goal_straightline_dist, x_center, C = self.init()
-        self.init_pc() # * nirrt*
+        self.init_pc()
         c_best = np.inf
-        c_update = c_best # * nirrt*
+        c_update = c_best
+
         for k in range(self.iter_max):
-            if k % 1000 == 0:
-                print(k)
-            if len(self.path_solutions)>0:
+            start_time = time.time()  # 记录每次迭代开始时间
+
+            if len(self.path_solutions) > 0:
                 c_best, x_best = self.find_best_path_solution()
-            node_rand, c_update = self.generate_random_node(c_best, start_goal_straightline_dist, x_center, C, c_update) # * nirrt*
+
+            node_rand, c_update = self.generate_random_node(c_best, start_goal_straightline_dist, x_center, C, c_update)
             node_nearest, node_nearest_index = self.nearest_neighbor(self.vertices[:self.num_vertices], node_rand)
             node_new = self.new_state(node_nearest, node_rand)
+
             if not self.utils.is_collision(node_nearest, node_new):
-                if np.linalg.norm(node_new-node_nearest)<1e-8:
-                    # * do not create a new node if it is actually the same point
+                if np.linalg.norm(node_new - node_nearest) < 1e-8:
                     node_new = node_nearest
                     node_new_index = node_nearest_index
                     curr_node_new_cost = self.cost(node_nearest_index)
@@ -80,20 +83,31 @@ class NIRRTStarPNG3D(IRRTStar3D):
                     self.vertices[node_new_index] = node_new
                     self.vertex_parents[node_new_index] = node_nearest_index
                     self.num_vertices += 1
-                    curr_node_new_cost = self.cost(node_nearest_index)+self.Line(node_nearest, node_new)
+                    curr_node_new_cost = self.cost(node_nearest_index) + self.Line(node_nearest, node_new)
+
                 neighbor_indices = self.find_near_neighbors(node_new, node_new_index)
-                if len(neighbor_indices)>0:
+                if len(neighbor_indices) > 0:
                     self.choose_parent(node_new, neighbor_indices, node_new_index, curr_node_new_cost)
                     self.rewire(node_new, neighbor_indices, node_new_index)
+
                 if self.InGoalRegion(node_new):
                     self.path_solutions.append(node_new_index)
-        if len(self.path_solutions)>0:
-            c_best, x_best = self.find_best_path_solution()
-            self.path = self.extract_path(x_best)
-        else:
-            self.path = []
-        if visualize:
-            self.visualize(x_center, c_best, start_goal_straightline_dist, C)
+
+            if len(self.path_solutions) > 0:
+                c_best, x_best = self.find_best_path_solution()
+                self.path = self.extract_path(x_best)
+            else:
+                self.path = []
+
+            end_time = time.time()
+            planning_time = end_time - start_time
+
+            # 每 1000 次迭代打印状态并可视化
+            if k % 50 == 0:
+                print(f"Iteration {k} finished in {planning_time:.4f} s, current best path length: {c_best}")
+                if visualize:
+                    img_filename = f"nirrt_3d/iter_{k}.png"
+                    self.visualize(x_center, c_best, start_goal_straightline_dist, C, img_filename=img_filename)
 
 
     def generate_random_node(
@@ -174,9 +188,7 @@ class NIRRTStarPNG3D(IRRTStar3D):
 
     def visualize(self, x_center, c_best, start_goal_straightline_dist, C, figure_title=None, img_filename=None):
         if figure_title is None:
-            figure_title = "nirrt* 3D, iteration " + str(self.iter_max)
-        # if img_filename is None:
-        #     img_filename="nirrt*_3d_example.png"
+            figure_title = f"nirrt* 3D, iteration {self.iter_max}"
         self.visualizer.animation(
             self.vertices[:self.num_vertices],
             self.vertex_parents[:self.num_vertices],
@@ -186,7 +198,7 @@ class NIRRTStarPNG3D(IRRTStar3D):
             c_best,
             start_goal_straightline_dist,
             C,
-            img_filename=img_filename,
+            img_filename=img_filename
         )
             
 

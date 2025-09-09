@@ -7,6 +7,7 @@ from pointnet_pointnet2.models.pointnet2_utils import pc_normalize
 class PathPlanDataset(Dataset):
     def __init__(
         self,
+        env_type,
         dataset_filepath,
     ):
         """
@@ -17,16 +18,20 @@ class PathPlanDataset(Dataset):
         self.start_mask = data['start'].astype(np.float32) # (N, 2048)
         self.goal_mask = data['goal'].astype(np.float32) # (N, 2048)
         self.free_mask = data['free'].astype(np.float32) # (N, 2048)
-        self.astar_mask = data['astar'].astype(np.float32) # (N, 2048)
+        if env_type.startswith('random'):
+            self.path_mask = data['astar'].astype(np.float32) # (N, 2048)
+        else:
+            self.path_mask = data['bitstar'].astype(np.float32)
         self.token = data['token']
         if self.pc.shape[2]==2:
             self.pc = np.concatenate(
                 (self.pc, np.zeros((self.pc.shape[0], self.pc.shape[1], 1)).astype(np.float32)),
                 axis=2,
             )
-        if self.pc.shape[2]!=3:
-            raise RuntimeError("Point cloud is not 3D.")
-        labelweights, _ = np.histogram(self.astar_mask, range(3))
+        self.d = self.pc.shape[2]
+        self.n_points = self.pc.shape[1]  
+        print(f"[PathPlanDataset] Loaded point cloud with dimension = {self.d}")
+        labelweights, _ = np.histogram(self.path_mask, range(3))
         labelweights = labelweights.astype(np.float32)
         labelweights = labelweights / np.sum(labelweights)
         self.labelweights = np.power(np.amax(labelweights) / labelweights, 1 / 3.0)
@@ -42,5 +47,5 @@ class PathPlanDataset(Dataset):
             (self.start_mask[index], self.goal_mask[index], self.free_mask[index]),
             axis=-1,
         ) # (2048, 3)
-        pc_labels = self.astar_mask[index] # (2048,)
+        pc_labels = self.path_mask[index] # (2048,)
         return pc_xyz_raw, pc_xyz, pc_features, pc_labels, self.token[index]
