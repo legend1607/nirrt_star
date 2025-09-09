@@ -34,9 +34,6 @@ def main(args):
     os.makedirs(checkpoints_dir, exist_ok=True)
     os.makedirs(log_dir, exist_ok=True)
 
-    if args.dim not in [2, 3]:
-        raise ValueError('Invalid dimension: %s.' % args.dim)
-
     if args.random_seed is not None:
         np.random.seed(args.random_seed)
         torch.manual_seed(args.random_seed)
