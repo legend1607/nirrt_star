@@ -146,7 +146,7 @@ def save_path_and_env(mode_path_dir, env_idx, path_list, env_dict, mode_dir, mod
         path_np = np.array(path)
         np.savetxt(join(mode_path_dir, f"{env_idx}_{path_idx}.txt"), path_np, fmt='%.6f', delimiter=',')
     with open(join(mode_dir, "envs.json"), "w") as f:
-        json.dump(mode_env_list, f, indent=2)
+        json.dump(mode_env_list, f)
 
 def generate_bitstar_dataset(mode, env_size, redundant_mode_env_list, config, dataset_dir):
     print(f"Generating BIT* paths for {mode} set...")
@@ -329,7 +329,7 @@ def generate_bitstar_dataset_parallel(mode, env_size, redundant_mode_env_list, c
                     # 阶段性保存 JSON
                     if len(mode_env_list) % save_interval == 0:
                         with open(final_file, "w", encoding="utf-8") as f_json:
-                            json.dump(mode_env_list, f_json, indent=2, ensure_ascii=False)
+                            json.dump(mode_env_list, f_json, ensure_ascii=False)
                         print(f"保存 {final_file}, 当前已有 {len(mode_env_list)} 个环境")
 
                 # 终止条件：够了 env_size 个有效环境
@@ -342,7 +342,7 @@ def generate_bitstar_dataset_parallel(mode, env_size, redundant_mode_env_list, c
     print("Saving final paths and envs...")
     save_env_paths(mode_path_dir, mode_env_list)
     with open(final_file, "w", encoding="utf-8") as f:
-        json.dump(mode_env_list, f, indent=2, ensure_ascii=False)
+        json.dump(mode_env_list, f, ensure_ascii=False)
 
     print(f"Finished {mode} set. Total valid envs: {len(mode_env_list)}")
 
@@ -361,4 +361,4 @@ if __name__ == "__main__":
             print(f"Loaded {len(redundant_mode_env_list)} redundant envs for {mode} set")
         # generate_bitstar_dataset(mode, env_size_dict[mode], redundant_mode_env_list, config, dataset_dir)
         # generate_bitstar_dataset_parallel(mode, env_size_dict[mode], redundant_mode_env_list, config, dataset_dir, n_process=6)
-    visualize_env_sample('train', env_id=300, sample_idx=2, dataset_dir=dataset_dir)
+    # visualize_env_sample('train', env_id=300, sample_idx=2, dataset_dir=dataset_dir)

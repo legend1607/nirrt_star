@@ -21,7 +21,7 @@ from datasets_3d.point_cloud_mask_utils_3d import generate_rectangle_point_cloud
 config = {
     'dataset_dir': "data/kuka_random_3d",
     'modes': ['train'],
-    'n_points': 10000,
+    'n_points': 4096,  # 点云采样数量
     'over_sample_scale': 10,
     'point_cloud_clearance': 0.0,  # 生成点云时避开障碍物距离
     'start_radius': 0.2,           # 起点周围点云半径
@@ -249,39 +249,30 @@ def generate_point_cloud_parallel(mode, env_list, config, num_workers=None):
         print(f"[Resume] 已完成 {len(finished_tokens)} samples, 将跳过重复 env")
 
     # ---- 筛选未完成的 env ----
-    env_list_to_run = []
-    for env in env_list:
-        env_id = env['env_id']
-        token_prefix = f"{mode}-{env_id}_"
-        if any(t.startswith(token_prefix) for t in finished_tokens):
-            continue
-        env_list_to_run.append(env)
+    env_list_to_run = [e for e in env_list if not any(t.startswith(f"{mode}-{e['env_id']}_") for t in finished_tokens)]
+    total_needed = len(env_list_to_run)
 
-    print(f"[Main] {mode}: {len(env_list)} total envs, {len(env_list_to_run)} remaining after resume")
-
-    if not env_list_to_run:
-        print(f"[Main] {mode} 已完成，无需继续")
-        return
-
-    # ---- 并行运行 ----
     with ProcessPoolExecutor(max_workers=num_workers) as executor:
         futures = {executor.submit(process_env, (mode, e, config)): e['env_id'] for e in env_list_to_run}
+        completed_envs = 0
 
-        with tqdm(total=len(env_list_to_run), desc=f"[{mode}] env progress") as pbar:
-            for i, f in enumerate(as_completed(futures)):
-                env_id = futures[f]
+        with tqdm(total=total_needed, desc=f"[{mode}] env progress") as pbar:
+            for f in as_completed(futures):
                 result = f.result()
                 if result is not None:
                     for k in pc_dataset.keys():
                         pc_dataset[k].extend(result[k])
+                    completed_envs += 1
                     pbar.update(1)
 
-                    if (i + 1) % config['save_interval'] == 0:
-                        save_dataset(pc_dataset, dataset_dir, mode)
-                else:
-                    print(f"[Error] Subprocess failed on env {env_id}, exiting...", flush=True)
-                    executor.shutdown(wait=False, cancel_futures=True)
-                    sys.exit(1)
+                # 检查是否达到 env_size（已完成的 env 数量）
+                if completed_envs >= total_needed:
+                    # 取消未完成的 futures
+                    for fut in futures:
+                        if not fut.done():
+                            fut.cancel()
+                    print(f"[Main] {mode} 已达到 env_size，结束当前 mode")
+                    break
 
     save_dataset(pc_dataset, dataset_dir, mode)
     print(f"[Main] {mode} 完成，结果保存到 {final_file}")

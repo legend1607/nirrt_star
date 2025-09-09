@@ -13,8 +13,9 @@ dataset_dir = join("data", config_name)
 config = {
     'random_seed': 42,
     'num_obstacles_range': [5, 15],       
-    'box_size_range': [0.05, 0.2],        
-    'space_range': [-1, 1],               
+    'box_size_range': [0.05, 0.2],   
+    'space_range_xy': [-1, 1],             # x/y 坐标范围
+    'space_range_z': [0, 1],               # z 坐标范围
     'num_samples_per_env': 5,             
     'redundant_env_size_scale': 1.5,        
     'train_env_size': 4000,
@@ -36,8 +37,11 @@ def generate_random_obstacles(env):
     for _ in range(num_obstacles):
         half_extents = np.random.uniform(config['box_size_range'][0],
                                          config['box_size_range'][1], 3)
-        base_position = np.random.uniform(config['space_range'][0],
-                                          config['space_range'][1], 3)
+        base_position = np.array([
+            np.random.uniform(*config['space_range_xy']),  # x
+            np.random.uniform(*config['space_range_xy']),  # y
+            np.random.uniform(*config['space_range_z'])    # z
+        ])
         env.add_box_obstacle(half_extents, base_position)
 
 def visualize_start_goal(env, start, goal):
@@ -100,8 +104,12 @@ for mode in ['train', 'val', 'test']:
 
         env_dict = {
             'env_dims': [
-                config['space_range'][0], config['space_range'][0], config['space_range'][0],
-                config['space_range'][1], config['space_range'][1], config['space_range'][1]
+                config['space_range_xy'][0],  # xmin
+                config['space_range_xy'][0],  # ymin
+                config['space_range_z'][0],   # zmin
+                config['space_range_xy'][1],  # xmax
+                config['space_range_xy'][1],  # ymax
+                config['space_range_z'][1]    # zmax
             ],
             'joint_bounds': env.bound.tolist(),
             'box_obstacles': box_obstacles,
@@ -110,11 +118,12 @@ for mode in ['train', 'val', 'test']:
             'goal': x_goal_list
         }
         mode_env_list.append(env_dict)
+        print(f"Valid env: {len(mode_env_list)}/{config['total_env_count']}")
 
         with open(join(mode_dir, "raw_envs.json"), "w") as f:
-            json.dump(mode_env_list, f, indent=2)
+            json.dump(mode_env_list, f)
 
-        if len(mode_env_list) % 5 == 0:
+        if len(mode_env_list) % 100 == 0:
             print(f"{len(mode_env_list)} {mode} envs and {len(mode_env_list)*config['num_samples_per_env']} samples saved.")
 
 print(f"Finished generating dataset, saved in {dataset_dir}")
