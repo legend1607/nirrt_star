@@ -18,7 +18,7 @@ class PNGWrapper:
             - num_classes: default 3, for path and not path.
         """
         self.model = get_model(num_classes).to(device)
-        model_filepath = join(root_dir, 'results/model_training/pointnet2_3d/checkpoints/best_pointnet2_3d.pth')
+        model_filepath = join(root_dir, 'results/model_training/random_pointnet2_3d/checkpoints/best_pointnet2_3d.pth')
         checkpoint = torch.load(model_filepath, map_location=torch.device(device))
         self.model.load_state_dict(checkpoint['model_state_dict'])
         self.model = self.model.eval()

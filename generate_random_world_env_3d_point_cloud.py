@@ -37,6 +37,7 @@ dataset_dir = join("data", config_name)
 for mode in ['train', 'val', 'test']:
     with open(join(dataset_dir, mode, "envs.json"), 'r') as f:
         env_list = json.load(f)
+    env_list = sorted(env_list, key=lambda x: x['env_id'])
     raw_dataset = {}
     raw_dataset['token'] = []
     raw_dataset['pc'] = []
@@ -54,13 +55,14 @@ for mode in ['train', 'val', 'test']:
             resolution=config['astar_resolution'],
         )
 
+        env_id = env_dict['env_id']
         for sample_idx, (x_start, x_goal) in enumerate(zip(env_dict['start'], env_dict['goal'])):
             env.set_start_goal(x_start, x_goal)
-            sample_title = "{0}_{1}".format(env_idx, sample_idx)
+            sample_title = "{0}_{1}".format(env_id, sample_idx)  # 用 env_id
             path = np.loadtxt(
                 join(dataset_dir, mode, "astar_paths", sample_title+".txt"),
                 delimiter=',',
-            ) # np (n_path_points, 3)
+            )
             token = mode+"-"+sample_title
             pc = generate_rectangle_point_cloud_3d_v1(
                 env,

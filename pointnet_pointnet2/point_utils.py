@@ -196,29 +196,19 @@ def rotate_perturbation_point_cloud(batch_data, angle_sigma=0.06, angle_clip=0.1
         rotated_data[k, ...] = np.dot(shape_pc.reshape((-1, 3)), R)
     return rotated_data
 
-def augment_kuka_joint_space(batch_q, 
-                             env: "KukaEnv",
-                              local_indices=None,     # 要扰动/旋转的关节索引
-                              rotation_prob=0.5,      # 每个样本旋转概率
-                              perturb_sigma=0.01,     # 高斯扰动标准差
-                              perturb_clip=0.05,      # 高斯扰动裁剪
-                              check_feasible=False,   # 是否做可行性检查
-                              max_attempts=10):       # 可行性重采样次数
+def augment_kuka_joint_space(
+    batch_q, 
+    env: "KukaEnv",
+    local_indices=None,     # 要扰动/旋转的关节索引
+    rotation_prob=0.0,      # 默认关闭旋转（改为 0.0）
+    perturb_sigma=0.01,     # 高斯扰动标准差
+    perturb_clip=0.05,      # 高斯扰动裁剪
+    check_feasible=False,   # 是否做可行性检查
+    max_attempts=10         # 可行性重采样次数
+):
     """
     高维机器人关节空间增强函数
-    
-    参数:
-        batch_q: B x N x D array, D = env.config_dim
-        env: KukaEnv 对象
-        local_indices: list[int], 只对指定关节增强
-        rotation_prob: 随机旋转概率
-        perturb_sigma: 小扰动标准差
-        perturb_clip: 小扰动裁剪
-        check_feasible: 是否检查 FK / 碰撞
-        max_attempts: 可行性检查失败后重采样次数
-    
-    返回:
-        batch_aug: B x N x D, 增强后的关节向量
+    默认只做小扰动，不做旋转
     """
     B, N, D = batch_q.shape
     batch_aug = batch_q.copy()
@@ -234,21 +224,25 @@ def augment_kuka_joint_space(batch_q,
             for attempt in range(max_attempts):
                 q_aug = q.copy()
                 
-                # 局部旋转
-                if np.random.rand() < rotation_prob:
+                # 局部旋转（默认关闭）
+                if rotation_prob > 0.0 and np.random.rand() < rotation_prob:
                     d = len(local_indices)
                     Q, _ = np.linalg.qr(np.random.randn(d, d))
                     q_sub = q_aug[local_indices]
                     q_aug[local_indices] = np.dot(q_sub, Q)
                 
                 # 小幅扰动
-                jitter = np.clip(perturb_sigma * np.random.randn(D), -perturb_clip, perturb_clip)
+                jitter = np.clip(
+                    perturb_sigma * np.random.randn(D),
+                    -perturb_clip,
+                    perturb_clip
+                )
                 q_aug += jitter
                 
                 # 裁剪到关节合法范围
                 q_aug = np.clip(q_aug, min_bound, max_bound)
                 
-                # 可行性检查（FK + 碰撞）
+                # 可行性检查
                 feasible = True
                 if check_feasible:
                     env.init_state = q_aug
@@ -257,9 +251,9 @@ def augment_kuka_joint_space(batch_q,
                 
                 if feasible:
                     batch_aug[b, n] = q_aug
-                    break  # 成功增强
+                    break
                 elif attempt == max_attempts - 1:
-                    batch_aug[b, n] = q  # 无法增强，保持原值
+                    batch_aug[b, n] = q
     
     return batch_aug
 

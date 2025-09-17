@@ -184,6 +184,7 @@ np.random.seed(random_seed)
 env_size = {}
 for mode in ['train', 'val', 'test']:
     env_size[mode] = config[mode+'_env_size']
+    print(mode+' env size: '+str(env_size[mode]))
 
 total_env_count = 0
 invalid_env_count = 0
@@ -192,6 +193,7 @@ for mode in ['train', 'val', 'test']:
     mode_path_dir = join(mode_dir, "astar_paths")
     makedirs(mode_path_dir, exist_ok=True)
     mode_env_list = []
+    print(env_size[mode])
     while len(mode_env_list) < env_size[mode]*redundant_env_size_scale:
         total_env_count += 1
         env_dims, box_obstacles, ball_obstacles = generate_env_3d(

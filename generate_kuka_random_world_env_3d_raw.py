@@ -59,6 +59,7 @@ def visualize_start_goal(env, start, goal):
         input()  # 等待用户按回车
     finally:
         p.removeBody(goal_kuka)
+
 # ---------------- Dataset Generation ----------------
 total_env_count = 0
 invalid_env_count = 0
@@ -118,10 +119,10 @@ for mode in ['train', 'val', 'test']:
             'goal': x_goal_list
         }
         mode_env_list.append(env_dict)
-        print(f"Valid env: {len(mode_env_list)}/{config['total_env_count']}")
-
-        with open(join(mode_dir, "raw_envs.json"), "w") as f:
-            json.dump(mode_env_list, f)
+        print(f"Valid env: {len(mode_env_list)}/{total_env_count}")
+        if len(mode_env_list) % 100 == 0:
+            with open(join(mode_dir, "raw_envs.json"), "w") as f:
+                json.dump(mode_env_list, f)
 
         if len(mode_env_list) % 100 == 0:
             print(f"{len(mode_env_list)} {mode} envs and {len(mode_env_list)*config['num_samples_per_env']} samples saved.")

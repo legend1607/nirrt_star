@@ -16,7 +16,6 @@ def get_binary_mask(env_img):
     binary_mask[env_img[:,:,0]!=0]=1
     return binary_mask
 
-
 def get_point_cloud_mask_around_points(point_cloud, points, neighbor_radius=3):
     """
     - 自动支持 point_cloud 和 points 的任意维度
@@ -39,8 +38,6 @@ def get_point_cloud_mask_around_points(point_cloud, points, neighbor_radius=3):
     around_points_mask = np.any(neighbor_mask, axis=1)  # (n,)
 
     return around_points_mask
-
-
 
 # *** Rectangular sampling ***
 def generate_rectangle_point_cloud(

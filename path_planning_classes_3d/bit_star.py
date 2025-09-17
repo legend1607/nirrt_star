@@ -107,12 +107,45 @@ class BITStar:
         return radius_constant
 
     def informed_sample_init(self):
+        """
+        初始化椭球采样所需的旋转矩阵 C 和中心点。
+        加入鲁棒性检查：如果 c_min 非法（0 或 nan），禁用椭球采样。
+        """
+        # 防护：如果 start 与 goal 相同或 c_min 非正，标记为不可用
+        try:
+            if not np.isfinite(self.c_min) or self.c_min <= 1e-12:
+                # disable informed sampling (will fallback to uniform)
+                self.center_point = None
+                self.C = None
+                return
+        except Exception:
+            self.center_point = None
+            self.C = None
+            return
+
         self.center_point = np.array([(self.start[i] + self.goal[i]) / 2.0 for i in range(self.dimension)])
+        # unit vector along the major axis
         a_1 = (np.array(self.goal) - np.array(self.start)) / self.c_min
-        id1_t = np.array([1.0] * self.dimension)
-        M = np.dot(a_1.reshape((-1, 1)), id1_t.reshape((1, -1)))
-        U, S, Vh = np.linalg.svd(M, 1, 1)
-        self.C = np.dot(np.dot(U, np.diag([1] * (self.dimension - 1) + [np.linalg.det(U) * np.linalg.det(np.transpose(Vh))])), Vh)
+        # build matrix for SVD
+        id1_t = np.zeros(self.dimension)
+        id1_t[-1] = 1.0
+        # Construct M as outer product (a_1) * (e1^T) but ensuring shapes are correct
+        M = np.zeros((self.dimension, self.dimension))
+        M[:, -1] = a_1  # put a_1 as last column
+        try:
+            U, S, Vh = np.linalg.svd(M)
+            # construct rotation matrix C
+            # ensure determinant sign parity as in original implementation
+            detU = np.linalg.det(U)
+            detV = np.linalg.det(Vh.T)
+            S_diag = np.ones(self.dimension)
+            S_diag[-1] = detU * detV
+            self.C = U @ np.diag(S_diag) @ Vh
+        except Exception:
+            # SVD failed for degenerate cases; disable informed sampling
+            self.center_point = None
+            self.C = None
+            return
 
     def sample_unit_ball(self):
         u = np.random.normal(0, 1, self.dimension)  # an array of d normally distributed random variables
@@ -122,18 +155,43 @@ class BITStar:
         return x
 
     def informed_sample(self, c_best, sample_num, vertices):
-        if c_best < float('inf'):
-            c_b = math.sqrt(c_best ** 2 - self.c_min ** 2) / 2.0
-            r = [c_best / 2.0] + [c_b] * (self.dimension - 1)
-            L = np.diag(r)
+        """
+        Informed sampling with safety:
+        - if c_best is infinite / not found, fallback to uniform sampling
+        - if c_best <= c_min (or numeric noise), fallback to uniform
+        - ensure sqrt argument non-negative using max(0.0, ...)
+        """
         sample_array = []
         cur_num = 0
+
+        # safety epsilon
+        eps = 1e-12
+
+        use_informed = (np.isfinite(c_best) and self.C is not None and c_best > (self.c_min + eps))
+
+        # Precompute L if informed
+        if use_informed:
+            val = c_best ** 2 - self.c_min ** 2
+            # numeric protection
+            val = max(0.0, val)
+            c_b = math.sqrt(val) / 2.0
+            r = [c_best / 2.0] + [c_b] * (self.dimension - 1)
+            L = np.diag(r)
+        else:
+            # if informed sampling not usable, do uniform sampling across bounds
+            pass
+
+        # Sample loop
         while cur_num < sample_num:
-            if c_best < float('inf'):
+            if use_informed:
+                # sample inside unit ball then transform
                 x_ball = self.sample_unit_ball()
                 random_point = tuple(np.dot(np.dot(self.C, L), x_ball) + self.center_point)
             else:
+                # uniform random in bounds
                 random_point = self.get_random_point()
+
+            # accept only free points
             if self.is_point_free(random_point):
                 sample_array.append(random_point)
                 cur_num += 1
@@ -286,6 +344,12 @@ class BITStar:
             if not self.vertex_queue and not self.edge_queue:
                 c_best = self.g_scores[self.goal]
                 self.prune(c_best)
+                if math.isinf(c_best):
+                    # 没有找到路径 → uniform 采样
+                    new_samples = [self.get_random_point() for _ in range(self.batch_size)]
+                else:
+                    # 已有路径 → 尝试 informed 采样（内部有保护，必要时回退 uniform）
+                    new_samples = self.sampling(c_best, self.batch_size, self.vertices)
                 self.samples.extend(self.sampling(c_best, self.batch_size, self.vertices))
                 self.T += self.batch_size
 

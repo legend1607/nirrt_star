@@ -14,15 +14,16 @@ class PathPlanDataset(Dataset):
         dataset_filepath: 'data/random_2d/'+mode+'.npz', where mode is 'train', 'val', or 'test'.
         """
         data = np.load(dataset_filepath)
-        self.pc = data['pc'].astype(np.float32) # (N, 2048, 2)
-        self.start_mask = data['start'].astype(np.float32) # (N, 2048)
-        self.goal_mask = data['goal'].astype(np.float32) # (N, 2048)
-        self.free_mask = data['free'].astype(np.float32) # (N, 2048)
+        self.pc = data['pc'].astype(np.float32)
+        self.start_mask = data['start'].astype(np.float32)
+        self.goal_mask = data['goal'].astype(np.float32) 
+        self.free_mask = data['free'].astype(np.float32) 
         if env_type.startswith('random'):
-            self.path_mask = data['astar'].astype(np.float32) # (N, 2048)
+            self.path_mask = data['astar'].astype(np.float32) 
         else:
             self.path_mask = data['bitstar'].astype(np.float32)
         self.token = data['token']
+        # print(f"self.token.dtype: {self.token.dtype}")
         if self.pc.shape[2]==2:
             self.pc = np.concatenate(
                 (self.pc, np.zeros((self.pc.shape[0], self.pc.shape[1], 1)).astype(np.float32)),

@@ -80,45 +80,6 @@ def generate_rectangle_point_cloud_3d_v1(
 
 
 
-def generate_configuration_space_point_cloud_kuka(
-    env,
-    n_points,
-    over_sample_scale=5,
-):
-    """
-    Generate a point cloud in the KUKA configuration space.
-    Only keep collision-free configurations.
-
-    Inputs:
-        env: KukaEnv instance
-        n_points: number of points to keep
-        over_sample_scale: oversampling factor for rejection sampling
-
-    Outputs:
-        point_cloud: (n_points, config_dim) array of collision-free joint configurations
-    """
-    max_attempts = n_points * over_sample_scale
-    point_cloud = []
-
-    attempts = 0
-    while len(point_cloud) < n_points and attempts < max_attempts * 10:
-        # 采样随机关节配置
-        state = env.uniform_sample()
-        if env.is_state_free(state):
-            point_cloud.append(state)
-        attempts += 1
-
-    if len(point_cloud) < n_points:
-        print(f"Warning: only sampled {len(point_cloud)} points out of requested {n_points}")
-
-    point_cloud = np.array(point_cloud)
-    # Downsample if oversampled
-    if len(point_cloud) > n_points:
-        indices = np.random.choice(len(point_cloud), n_points, replace=False)
-        point_cloud = point_cloud[indices]
-
-    return point_cloud
-
 def generate_rectangle_point_cloud_3d(
     env,
     n_points,

@@ -6,6 +6,7 @@ from matplotlib import pyplot as plt
 import numpy as np
 import pybullet as p
 import time
+from concurrent.futures import wait
 from tqdm import tqdm
 from multiprocessing import Pool
 from environment.kuka_env import KukaEnv
@@ -21,7 +22,7 @@ config = {
     'num_obstacles_range': [5, 15],
     'box_size_range': [0.05, 0.2],
     'space_range': [-1, 1],
-    'num_samples_per_env': 5,
+    'num_samples_per_env': 1,
     'redundant_env_size_scale': 2,
     'train_env_size': 4000,
     'val_env_size': 500,
@@ -149,74 +150,79 @@ def save_path_and_env(mode_path_dir, env_idx, path_list, env_dict, mode_dir, mod
         json.dump(mode_env_list, f)
 
 def generate_bitstar_dataset(mode, env_size, redundant_mode_env_list, config, dataset_dir):
-    print(f"Generating BIT* paths for {mode} set...")
+    print(f"Generating BIT* paths for {mode} set (single process)...")
     mode_dir = join(dataset_dir, mode)
     mode_path_dir = join(mode_dir, "bitstar_paths")
     makedirs(mode_path_dir, exist_ok=True)
+
     mode_env_list = []
     total_env_count = 0
     invalid_env_count = 0
 
     env = KukaEnv(GUI=config['GUI'])
-    with tqdm(total=env_size, desc=f"[{mode}]", position=0, leave=True) as pbar:
-        while len(mode_env_list) < env_size:
-            if total_env_count >= len(redundant_mode_env_list):
-                print("redundant_mode_env not enough")
+    while len(mode_env_list) < env_size:
+        if total_env_count >= len(redundant_mode_env_list):
+            print("redundant_mode_env not enough")
+            break
+        total_env_count += 1
+        env.reset_obstacles()
+        env.reset_arm()
+
+        env_dict = redundant_mode_env_list[total_env_count - 1]
+        for obs in env_dict['box_obstacles']:
+            half_extents = np.array(obs[3:]) / 2.0
+            base_position = np.array(obs[:3])
+            env.add_box_obstacle(half_extents, base_position)
+
+        x_start_list, x_goal_list = env_dict['start'], env_dict['goal']
+        valid_env = True
+        path_list, exec_time_list = [], []
+
+        for idx in range(config['num_samples_per_env']):
+            x_start, x_goal = x_start_list[idx], x_goal_list[idx]
+            path, exec_time = generate_bitstar_path(
+                env, x_start, x_goal,
+                gui=config['GUI'],
+                refine_time_budget=config['refine_time_budget'],
+                time_budget=config['time_budget']
+            )
+            if path is None:
+                valid_env = False
                 break
-            total_env_count += 1
-            env.reset_obstacles()
-            env.reset_arm()
-            env_dict = redundant_mode_env_list[total_env_count - 1]
-            print(f"env_idx={total_env_count - 1}")
-            for obs in env_dict['box_obstacles']:
-                half_extents = np.array(obs[3:]) / 2.0
-                base_position = np.array(obs[:3])
-                env.add_box_obstacle(half_extents, base_position)
-            x_start_list, x_goal_list = env_dict['start'], env_dict['goal']
+            path_list.append(path)
+            exec_time_list.append(exec_time)
 
-            valid_env = True
-            path_list, exec_time_list = [], []
+        if not valid_env:
+            invalid_env_count += 1
+            print(f"Invalid env: {invalid_env_count}/{total_env_count}")
+            continue
 
-            for idx in range(config['num_samples_per_env']):
-                x_start, x_goal = x_start_list[idx], x_goal_list[idx]
-                path, exec_time = generate_bitstar_path(env, x_start, x_goal, gui=config['GUI'], refine_time_budget=config['refine_time_budget'], time_budget=config['time_budget'])
-                if path is None:
-                    valid_env = False
-                    break
-                path_list.append(path)
-                exec_time_list.append(exec_time)
+        # 用有效编号
+        env_idx = len(mode_env_list)
+        env_dict['env_id'] = env_idx
+        env_dict['bitstar_time'] = exec_time_list
+        mode_env_list.append(env_dict)
 
-            if not valid_env:
-                invalid_env_count += 1
-                print(f"Invalid env: {invalid_env_count}/{total_env_count}")
-                continue
+        # 保存路径
+        for path_idx, path in enumerate(path_list):
+            path_np = np.array(path)
+            np.savetxt(join(mode_path_dir, f"{env_idx}_{path_idx}.txt"), path_np, fmt='%.6f', delimiter=',')
 
-            env_dict['bitstar_time'] = exec_time_list
-            mode_env_list.append(env_dict)
-            env_idx = len(mode_env_list) - 1
-            pbar.update(1)
-            save_path_and_env(mode_path_dir, env_idx, path_list, env_dict, mode_dir, mode_env_list)
+        # 保存 json
+        with open(join(mode_dir, "envs.json"), "w", encoding="utf-8") as f:
+            json.dump(mode_env_list, f, ensure_ascii=False)
+
+        print(f"{len(mode_env_list)} {mode} envs and {config['num_samples_per_env']*len(mode_env_list)} samples saved.")
 
     print(f"Finished {mode} set. Total valid envs: {len(mode_env_list)}, Invalid: {invalid_env_count}")
 
 
+# ==================== 单个环境处理 ====================
 def process_single_env(args):
-    env_idx, env_dict, num_samples, gui, refine_time_budget, time_budget, mode_path_dir = args
-    env_dict['env_id'] = env_idx   # 加入固定 id
+    raw_idx, env_dict, num_samples, gui, refine_time_budget, time_budget = args
     pid = os.getpid()
-    # ====== 跳过已生成的环境 ======
-    all_exist = True
-    for path_idx in range(num_samples):
-        filename = join(mode_path_dir, f"{env_idx}_{path_idx}.txt")
-        if not os.path.exists(filename):
-            all_exist = False
-            break
-    if all_exist:
-        print(f"[Subprocess {pid}] skip env {env_idx}, already done", flush=True)
-        return None
-    # =============================
     try:
-        print(f"[Subprocess {pid}] start env {env_idx}", flush=True)
+        print(f"[Subprocess {pid}] start raw env {raw_idx}", flush=True)
         env = KukaEnv(GUI=gui)
 
         # 添加障碍物
@@ -235,117 +241,146 @@ def process_single_env(args):
                                                    refine_time_budget=refine_time_budget,
                                                    time_budget=time_budget)
             if path is None:
-                print(f"[Subprocess {pid}] env {env_idx} failed sample {i}", flush=True)
+                print(f"[Subprocess {pid}] raw env {raw_idx} failed at sample {i}", flush=True)
                 return None
             path_list.append(path)
             exec_time_list.append(exec_time)
 
         env_dict['bitstar_time'] = exec_time_list
-        print(f"[Subprocess {pid}] finished env {env_idx}", flush=True)
+        print(f"[Subprocess {pid}] finished raw env {raw_idx}", flush=True)
         return env_dict, path_list
 
     except Exception as e:
-        # 把异常打印出来（子进程的 stderr 会回到父进程控制台）
         tb = traceback.format_exc()
-        print(f"[Subprocess {pid}] Exception processing env {env_idx}:\n{tb}", flush=True)
+        print(f"[Subprocess {pid}] Exception processing raw env {raw_idx}:\n{tb}", flush=True)
         return None
 
     finally:
-        # 强制清理 env（如果 env 存在且有 close）
         try:
             if 'env' in locals():
                 if hasattr(env, 'close'):
                     env.close()
                 else:
-                    # 最少调用 pybullet disconnect
-                    try:
-                        p.disconnect()
-                    except Exception:
-                        pass
+                    try: p.disconnect()
+                    except Exception: pass
         except Exception as e:
             print(f"[Subprocess {pid}] cleanup exception: {e}", flush=True)
+        finally:
+            print(f"[Subprocess {pid}] exiting raw env {raw_idx}...", flush=True) 
 
-def save_env_paths(mode_path_dir, mode_env_list):
+# ==================== 保存函数 ====================
+def save_env_paths(mode_path_dir, mode_env_list, env_size):
     for env_item in mode_env_list:
         env_id = env_item['env_id']
-        if len(mode_path_dir)>1000:
-            path_list = env_item.pop('paths', [])
+        path_list = env_item.get('paths', [])
+
+        # 单独保存到 .txt
         for path_idx, path in enumerate(path_list):
-            path_np = np.array(path)
             filename = join(mode_path_dir, f"{env_id}_{path_idx}.txt")
-            np.savetxt(filename, path_np, fmt='%.6f', delimiter=',')
-            # print(f"Saved path: {filename}")
+            np.savetxt(filename, np.array(path), fmt='%.6f', delimiter=',')
+
     return mode_env_list
 
-def generate_bitstar_dataset_parallel(mode, env_size, redundant_mode_env_list, config, dataset_dir, save_interval=10, n_process=4):
+# ==================== 并行生成 BIT* 数据集 ====================
+def generate_bitstar_dataset_parallel(mode, env_size, redundant_mode_env_list,
+                                      config, dataset_dir, save_interval=10, n_process=4):
     print(f"Generating BIT* paths for {mode} set (parallel, {n_process} processes)...")
     mode_dir = join(dataset_dir, mode)
     mode_path_dir = join(mode_dir, "bitstar_paths")
     makedirs(mode_path_dir, exist_ok=True)
-    mode_env_list = []
     final_file = join(mode_dir, "envs.json")
 
-    done_envs = set()
+    mode_env_list = []
+    invalid_env_count = 0
+
+    # 读取已有 JSON（只保留完整环境）
     if os.path.exists(final_file):
         with open(final_file, "r", encoding="utf-8") as f_json:
             try:
                 old_envs = json.load(f_json)
-                for e in old_envs:
-                    done_envs.add(e.get("env_id", -1))
-                if len(done_envs)>=env_size:
-                    print(f"{mode} set already completed with {len(done_envs)} envs.")
+
+                # === 新增完整性检查 ===
+                complete_envs = []
+                for env_item in old_envs:
+                    env_id = env_item['env_id']
+                    ok = True
+                    for path_idx in range(config['num_samples_per_env']):
+                        path_file = join(mode_path_dir, f"{env_id}_{path_idx}.txt")
+                        if not os.path.exists(path_file):
+                            ok = False
+                            break
+                    if ok:
+                        complete_envs.append(env_item)
+
+                mode_env_list = complete_envs
+                if len(mode_env_list) >= env_size:
+                    print(f"{mode} set already completed with {len(mode_env_list)} envs.")
                     return
-                mode_env_list.extend(old_envs)
-                print(f"已有 {len(done_envs)} 个环境完成，继续剩余部分...")
+                print(f"已有 {len(mode_env_list)} 个完整环境，继续剩余部分...")
+
             except Exception:
                 pass
-            
-    args_list = []
-    for i, env_dict in enumerate(redundant_mode_env_list):
-        if i in done_envs:
-            continue
-        args_list.append((i, env_dict, config['num_samples_per_env'], False,
-                          config['refine_time_budget'], config['time_budget'], mode_path_dir))
+
+    env_iter = ((i, env_dict) for i, env_dict in enumerate(redundant_mode_env_list))
+    from concurrent.futures import wait, FIRST_COMPLETED
 
     with ProcessPoolExecutor(max_workers=n_process) as executor:
-        futures = {executor.submit(process_single_env, args): args[0] for args in args_list}
+        futures = {}
+        # 初始填满任务池
+        for _ in range(n_process):
+            try:
+                i, env_dict = next(env_iter)
+                args = (i, env_dict, config['num_samples_per_env'],
+                        False, config['refine_time_budget'], config['time_budget'])
+                futures[executor.submit(process_single_env, args)] = i
+            except StopIteration:
+                break
 
-        with tqdm(
-                total=env_size,
-                initial=len(done_envs),   # 让进度条从已完成的环境数量开始
-                desc=f"[{mode}] 有效环境进度"
-            ) as pbar:
-            for f in as_completed(futures):
-                result = f.result()
-                if result is not None:
-                    env_dict, path_list = result
-                    env_dict['paths'] = path_list
-                    mode_env_list.append(env_dict)
+        with tqdm(total=env_size, initial=len(mode_env_list), desc=f"[{mode}] 有效环境进度") as pbar:
+            while futures and len(mode_env_list) < env_size:
+                done, _ = wait(futures.keys(), return_when=FIRST_COMPLETED)
 
-                    # 立刻保存路径（env_id 固定）
-                    save_env_paths(mode_path_dir, [env_dict])
-                    pbar.update(1)
+                for f in done:
+                    raw_idx = futures.pop(f)
+                    result = f.result()
+                    if result is None:
+                        invalid_env_count += 1
+                        print(f"[Main] raw env {raw_idx} invalid -> skipped ({invalid_env_count} so far)")
+                    else:
+                        res_env_dict, path_list = result
+                        # 重新分配有效编号
+                        env_id = len(mode_env_list)
+                        res_env_dict['env_id'] = env_id
+                        res_env_dict['paths'] = path_list
 
-                    # 阶段性保存 JSON
-                    if len(mode_env_list) % save_interval == 0:
-                        with open(final_file, "w", encoding="utf-8") as f_json:
-                            json.dump(mode_env_list, f_json, ensure_ascii=False)
-                        print(f"保存 {final_file}, 当前已有 {len(mode_env_list)} 个环境")
+                        mode_env_list.append(res_env_dict)
+                        save_env_paths(mode_path_dir, [res_env_dict], env_size=env_size)
 
-                # 终止条件：够了 env_size 个有效环境
-                if len(mode_env_list) >= env_size:
-                    print("达到所需环境数量，提前终止")
-                    executor.shutdown(wait=False, cancel_futures=True)
-                    break
+                        if len(mode_env_list) % save_interval == 0:
+                            with open(final_file, "w", encoding="utf-8") as f_json:
+                                json.dump(mode_env_list, f_json, ensure_ascii=False)
 
-    # 保存最终结果
-    print("Saving final paths and envs...")
-    save_env_paths(mode_path_dir, mode_env_list)
+                        pbar.update(1)
+
+                    # 提交新任务
+                    if len(mode_env_list) < env_size:
+                        try:
+                            i, env_dict = next(env_iter)
+                            args = (i, env_dict, config['num_samples_per_env'],
+                                    False, config['refine_time_budget'], config['time_budget'])
+                            futures[executor.submit(process_single_env, args)] = i
+                        except StopIteration:
+                            pass
+            for f in futures:
+                f.cancel()
+            executor.shutdown(wait=False)
+
+    # 最终保存
+    print(f"所有进程完成，保存最终结果...")
+    save_env_paths(mode_path_dir, mode_env_list, env_size=env_size)
     with open(final_file, "w", encoding="utf-8") as f:
         json.dump(mode_env_list, f, ensure_ascii=False)
-
-    print(f"Finished {mode} set. Total valid envs: {len(mode_env_list)}")
-
+    print(f"Finished {mode} set. Total valid envs: {len(mode_env_list)}, Invalid: {invalid_env_count}")
 
 # ---------------- Main Program ----------------
 if __name__ == "__main__":
@@ -360,5 +395,5 @@ if __name__ == "__main__":
             redundant_mode_env_list = json.load(f)
             print(f"Loaded {len(redundant_mode_env_list)} redundant envs for {mode} set")
         # generate_bitstar_dataset(mode, env_size_dict[mode], redundant_mode_env_list, config, dataset_dir)
-        # generate_bitstar_dataset_parallel(mode, env_size_dict[mode], redundant_mode_env_list, config, dataset_dir, n_process=6)
+        generate_bitstar_dataset_parallel(mode, env_size_dict[mode], redundant_mode_env_list, config, dataset_dir, n_process=10, save_interval=10)
     # visualize_env_sample('train', env_id=300, sample_idx=2, dataset_dir=dataset_dir)
