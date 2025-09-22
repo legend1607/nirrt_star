@@ -1,3 +1,4 @@
+from matplotlib import pyplot as plt
 import numpy as np
 from importlib import import_module
 
@@ -98,7 +99,10 @@ def main():
     if NeuralWrapper is None:
         neural_wrapper = None
     else:
-        neural_wrapper = NeuralWrapper(device=args.device)
+        if args.problem.startswith('random'):
+            neural_wrapper = NeuralWrapper(device=args.device)
+        elif args.problem.startswith('kuka'):
+            neural_wrapper = NeuralWrapper(coord_dim=7, device=args.device)
 
     # For random_3d, default clearance is 2
     if args.problem == 'random_3d':
@@ -121,6 +125,7 @@ def main():
 
     # Run planning with visualization
     path_planner.planning(visualize=True)
+
 
 if __name__ == "__main__":
     main()
