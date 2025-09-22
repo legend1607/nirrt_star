@@ -20,7 +20,7 @@ class PathPlanDataset(Dataset):
         self.free_mask = data['free'].astype(np.float32) 
         if env_type.startswith('random'):
             self.path_mask = data['astar'].astype(np.float32) 
-        else:
+        elif env_type.startswith('kuka'):
             self.path_mask = data['bitstar'].astype(np.float32)
         self.token = data['token']
         # print(f"self.token.dtype: {self.token.dtype}")
@@ -42,11 +42,11 @@ class PathPlanDataset(Dataset):
         return len(self.pc)
     
     def __getitem__(self, index):
-        pc_xyz_raw = self.pc[index] # (2048, 3)
-        pc_xyz = pc_normalize(pc_xyz_raw)
+        pc_pos_raw = self.pc[index] # (2048, 3)
+        pc_pos = pc_normalize(pc_pos_raw)
         pc_features = np.stack(
             (self.start_mask[index], self.goal_mask[index], self.free_mask[index]),
             axis=-1,
         ) # (2048, 3)
         pc_labels = self.path_mask[index] # (2048,)
-        return pc_xyz_raw, pc_xyz, pc_features, pc_labels, self.token[index]
+        return pc_pos_raw, pc_pos, pc_features, pc_labels, self.token[index]

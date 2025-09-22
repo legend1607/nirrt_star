@@ -1,6 +1,4 @@
-import os
 import time
-from matplotlib import pyplot as plt
 import numpy as np
 
 from path_planning_utils_3d.rrt_env_3d import Env
@@ -49,7 +47,6 @@ class NIRRTStarPNG3D(IRRTStar3D):
         self.path_solutions = [] # * a list of valid goal parent vertex indices
         self.visualizer = NIRRTStarVisualizer3D(self.x_start, self.x_goal, self.env)
 
-
     def init_pc(self):
         self.update_point_cloud(
             cmax=np.inf,
@@ -65,24 +62,14 @@ class NIRRTStarPNG3D(IRRTStar3D):
         c_best = np.inf
         c_update = c_best
 
-        # 记录用
-        c_list = []                 # 每次迭代的路径代价
-        t_list = []                 # 每次迭代对应的累计时间
-        first_solution_time = None  # 第一次可行解时间
-        t_start = time.time()       # 总规划开始时间
-
         for k in range(self.iter_max):
-            start_time = time.time()  # 单次迭代时间
+            start_time = time.time()  # 记录每次迭代开始时间
 
             if len(self.path_solutions) > 0:
                 c_best, x_best = self.find_best_path_solution()
 
-            node_rand, c_update = self.generate_random_node(
-                c_best, start_goal_straightline_dist, x_center, C, c_update
-            )
-            node_nearest, node_nearest_index = self.nearest_neighbor(
-                self.vertices[:self.num_vertices], node_rand
-            )
+            node_rand, c_update = self.generate_random_node(c_best, start_goal_straightline_dist, x_center, C, c_update)
+            node_nearest, node_nearest_index = self.nearest_neighbor(self.vertices[:self.num_vertices], node_rand)
             node_new = self.new_state(node_nearest, node_rand)
 
             if not self.utils.is_collision(node_nearest, node_new):
@@ -108,69 +95,18 @@ class NIRRTStarPNG3D(IRRTStar3D):
             if len(self.path_solutions) > 0:
                 c_best, x_best = self.find_best_path_solution()
                 self.path = self.extract_path(x_best)
-
-                # 记录第一次找到解的时间
-                if first_solution_time is None:
-                    first_solution_time = time.time() - t_start
-                    print(f"First feasible solution found at iteration {k}, time: {first_solution_time:.4f} s")
             else:
                 self.path = []
-
-            # 记录路径代价
-            c_list.append(c_best)
-            t_list.append(time.time() - t_start)
 
             end_time = time.time()
             planning_time = end_time - start_time
 
-            # 每 50 次迭代打印状态并可视化
+            # 每 1000 次迭代打印状态并可视化
             if k % 50 == 0:
                 print(f"Iteration {k} finished in {planning_time:.4f} s, current best path length: {c_best}")
                 if visualize:
-                    planner_name = self.__class__.__name__   # e.g. "NIRRTStarPNG3D"
-                    img_dir = os.path.join("visualization", "planning_demo", planner_name)
-                    os.makedirs(img_dir, exist_ok=True)
-                    img_filename = os.path.join(img_dir, f"iter_{k}.png")
+                    img_filename = f"nirrt_3d/iter_{k}.png"
                     self.visualize(x_center, c_best, start_goal_straightline_dist, C, img_filename=img_filename)
-
-        # 总规划时间
-        total_time = time.time() - t_start
-        print(f"Planning finished. First solution time: {first_solution_time}, Total planning time: {total_time:.4f} s")
-        
-        def plot_convergence(iter_list, time_list, cost_list, save_dir):
-            # 图1: 迭代 vs 路径代价
-            plt.figure(figsize=(8, 5))
-            plt.plot(iter_list, cost_list, label="Path cost vs Iteration", linewidth=2)
-            plt.xlabel("Iteration")
-            plt.ylabel("Path cost")
-            plt.title("Convergence (Iteration vs Path cost)")
-            plt.legend()
-            plt.grid(True, linestyle="--", alpha=0.7)
-            save_path1 = os.path.join(save_dir, "convergence_iteration.png")
-            plt.savefig(save_path1, dpi=300)
-            plt.close()
-            print(f"Convergence (iteration) plot saved to {save_path1}")
-
-            # 图2: 时间 vs 路径代价
-            plt.figure(figsize=(8, 5))
-            plt.plot(time_list, cost_list, label="Path cost vs Time", linewidth=2)
-            plt.xlabel("Planning time (s)")
-            plt.ylabel("Path cost")
-            plt.title("Convergence (Time vs Path cost)")
-            plt.legend()
-            plt.grid(True, linestyle="--", alpha=0.7)
-            save_path2 = os.path.join(save_dir, "convergence_time.png")
-            plt.savefig(save_path2, dpi=300)
-            plt.close()
-            print(f"Convergence (time) plot saved to {save_path2}")
-
-        # 保存到当前规划器目录
-        planner_name = self.__class__.__name__   # e.g. "NIRRTStarPNG3D"
-        img_dir = os.path.join("visualization", "planning_demo", planner_name)
-        os.makedirs(img_dir, exist_ok=True)
-
-        iter_list = list(range(1, len(c_list) + 1))
-        plot_convergence(iter_list, t_list, c_list, img_dir)
 
     def generate_random_node(
         self,
@@ -203,15 +139,17 @@ class NIRRTStarPNG3D(IRRTStar3D):
                 return self.SampleFree(), c_update
 
     def SamplePointCloud(self):
-        return self.path_point_cloud_pred[np.random.randint(0,len(self.path_point_cloud_pred))]
+        idx = np.random.randint(0, len(self.path_point_cloud_pred))
+        point = self.path_point_cloud_pred[idx]
+        direction = self.path_point_cloud_dir[idx]
+        # 你可以用 direction 做小偏移，沿方向采样
+        sampled_point = point + 0.1 * direction  # 0.1 可根据 step_len 或 scale 调整
+        return sampled_point
 
-    def update_point_cloud(
-        self,
-        cmax,
-        cmin,
-    ):
+    def update_point_cloud(self, cmax, cmin):
         if self.pc_sample_rate == 0:
             self.path_point_cloud_pred = None
+            self.path_point_cloud_dir = None
             self.visualizer.set_path_point_cloud_pred(self.path_point_cloud_pred)
             return
         if cmax < np.inf:
@@ -230,22 +168,19 @@ class NIRRTStarPNG3D(IRRTStar3D):
                 self.pc_n_points,
                 over_sample_scale=self.pc_over_sample_scale,
             )
-        start_mask = get_point_cloud_mask_around_points(
-            pc,
-            self.x_start[np.newaxis,:],
-            self.pc_neighbor_radius,
-        ) # (n_points,)
-        goal_mask = get_point_cloud_mask_around_points(
-            pc,
-            self.x_goal[np.newaxis,:],
-            self.pc_neighbor_radius,
-        ) # (n_points,)
-        path_pred, path_score = self.png_wrapper.classify_path_points(
+
+        start_mask = get_point_cloud_mask_around_points(pc, self.x_start[np.newaxis,:], self.pc_neighbor_radius)
+        goal_mask = get_point_cloud_mask_around_points(pc, self.x_goal[np.newaxis,:], self.pc_neighbor_radius)
+
+        path_pred, path_score, path_dir = self.png_wrapper.classify_path_points(
             pc.astype(np.float32),
             start_mask.astype(np.float32),
             goal_mask.astype(np.float32),
         )
-        self.path_point_cloud_pred = pc[path_pred.nonzero()[0]] # (<pc_n_points, 2)
+
+        # 保存点和对应方向
+        self.path_point_cloud_pred = pc[path_pred.nonzero()[0]]  # (<pc_n_points, 3)
+        self.path_point_cloud_dir = path_dir[path_pred.nonzero()[0]]  # (<pc_n_points, 3)
         self.visualizer.set_path_point_cloud_pred(self.path_point_cloud_pred)
 
     def visualize(self, x_center, c_best, start_goal_straightline_dist, C, figure_title=None, img_filename=None):
@@ -328,8 +263,6 @@ class NIRRTStarPNG3D(IRRTStar3D):
         c_best = np.inf
         c_update = c_best # * nirrt*
         better_than_inf = False
-        t_start = time.time()
-        first_solution_time = None
         for k in range(self.iter_max):
             if len(self.path_solutions)>0:
                 c_best, x_best = self.find_best_path_solution()
@@ -337,9 +270,6 @@ class NIRRTStarPNG3D(IRRTStar3D):
             if k % 1000 == 0:
                 if c_best == np.inf:
                     print("{0}/{1} - current: inf".format(k, self.iter_max)) #* not k+1, because we are not getting c_best after iteration is done
-            if first_solution_time is None and len(self.path_solutions) > 0:
-                first_solution_time = time.time() - t_start
-                print(f"Found initial solution at iteration {k}, time: {first_solution_time:.4f}s")
             if c_best < np.inf:
                 better_than_inf = True
                 print("{0}/{1} - current: {2:.2f}".format(k, self.iter_max, c_best))
@@ -375,12 +305,10 @@ class NIRRTStarPNG3D(IRRTStar3D):
             path_len_list.append(c_best)
             initial_path_len = path_len_list[-1]
             if initial_path_len == np.inf:
-                total_planning_time = time.time() - t_start
                 # * fail to find initial path solution
-                return path_len_list, None, total_planning_time
+                return path_len_list
         path_len_list = path_len_list[:-1] # * for loop below will add initial_path_len to path_len_list
         # * iteration after finding initial solution
-
         for k in range(iter_after_initial):
             c_best, x_best = self.find_best_path_solution() # * there must be path solutions
             path_len_list.append(c_best)
@@ -402,21 +330,18 @@ class NIRRTStarPNG3D(IRRTStar3D):
                     self.vertex_parents[node_new_index] = node_nearest_index
                     self.num_vertices += 1
                     curr_node_new_cost = self.cost(node_nearest_index)+self.Line(node_nearest, node_new)
-
                 neighbor_indices = self.find_near_neighbors(node_new, node_new_index)
                 if len(neighbor_indices)>0:
                     self.choose_parent(node_new, neighbor_indices, node_new_index, curr_node_new_cost)
                     self.rewire(node_new, neighbor_indices, node_new_index)
                 if self.InGoalRegion(node_new):
                     self.path_solutions.append(node_new_index)
-
         # * path cost for the last iteration
         c_best, x_best = self.find_best_path_solution() # * there must be path solutions
         path_len_list.append(c_best)
-        total_planning_time = time.time() - t_start
         print("{0}/{1} - current: {2:.2f}, initial: {3:.2f}".format(\
             iter_after_initial, iter_after_initial, c_best, initial_path_len))
-        return path_len_list, first_solution_time, total_planning_time
+        return path_len_list
 
 def get_path_planner(
     args,

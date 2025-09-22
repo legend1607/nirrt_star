@@ -216,7 +216,7 @@ class NIRRTStarVisualizer3D(IRRTStarVisualizer3D):
         self.path_point_cloud_pred = path_point_cloud_pred
 
     def animation(self, vertices, vertex_parents, path, figure_title,
-                  x_center, c_best, dist, C, img_filename=None, img_folder='visualization/planning_demo'):
+                  x_center, c_best, dist, C, img_filename=None):
         # 清空坐标轴内容
         self.ax.cla()
 
@@ -235,9 +235,8 @@ class NIRRTStarVisualizer3D(IRRTStarVisualizer3D):
 
         # 如果指定保存路径，则保存静态图片
         if img_filename is not None:
-            if not exists(img_folder):
-                os.makedirs(img_folder, exist_ok=True)
-            plt.savefig(join(img_folder, img_filename))
+            os.makedirs(os.path.dirname(img_filename), exist_ok=True)
+            plt.savefig(img_filename)
 
     def plot_grid(self, figure_title, clear_axes=True):
         """绘制环境网格和障碍物，如果 clear_axes=False，则使用已有图窗和坐标轴"""

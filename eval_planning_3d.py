@@ -1,6 +1,7 @@
 import time
 import pickle
 import argparse
+from tqdm import tqdm
 from copy import copy
 from os import makedirs
 from os.path import join, exists
@@ -97,30 +98,34 @@ else:
     with open(result_filepath, 'rb') as f:
         env_result_config_list = pickle.load(f)
 
-eval_start_time = time.time()
-for env_idx, env_config in enumerate(env_config_list[:num_problems]):
-    if env_idx < len(env_result_config_list):
-        time_left = (time.time() - eval_start_time) * (num_problems / (env_idx + 1) - 1) / 60
-        print("Evaluated {0}/{1}, remaining time: {2} min for {3}".format(env_idx + 1, num_problems, int(time_left), eval_setting))
-        continue
-    problem = get_problem_input(env_config)
-    path_planner = get_path_planner(
-        args,
-        problem,
-        neural_wrapper,
-    )
-    if args.problem == 'random_3d':
-        path_len_list = path_planner.planning_random(
-            args.iter_after_initial,
+# 初始化进度条
+env_result_config_list = [] if not exists(result_filepath) else pickle.load(open(result_filepath, 'rb'))
+num_problems_to_eval = num_problems - len(env_result_config_list)
+
+with tqdm(total=num_problems_to_eval, desc=f'Evaluating {eval_setting}', unit='problem') as pbar:
+    for env_idx, env_config in enumerate(env_config_list[:num_problems]):
+        if env_idx < len(env_result_config_list):
+            pbar.update(1)
+            continue
+
+        problem = get_problem_input(env_config)
+        path_planner = get_path_planner(
+            args,
+            problem,
+            neural_wrapper,
         )
-    else:
-        raise NotImplementedError
+        if args.problem == 'random_3d':
+            path_len_list, tfs, total_time = path_planner.planning_random(args.iter_after_initial)
+            print("Time to first solution:", tfs)
+            print("Total planning time:", total_time)
+        else:
+            raise NotImplementedError
 
-    env_result_config = copy(env_config)
-    env_result_config['result'] = path_len_list
-    env_result_config_list.append(env_result_config)
+        env_result_config = copy(env_config)
+        env_result_config['result'] = path_len_list
+        env_result_config_list.append(env_result_config)
 
-    with open(result_filepath, 'wb') as f:
-        pickle.dump(env_result_config_list, f)
-    time_left = (time.time() - eval_start_time) * (num_problems / (env_idx + 1) - 1) / 60
-    print("Evaluated {0}/{1}, remaining time: {2} min for {3}".format(env_idx + 1, num_problems, int(time_left), eval_setting))
+        with open(result_filepath, 'wb') as f:
+            pickle.dump(env_result_config_list, f)
+
+        pbar.update(1)  # 更新进度条
